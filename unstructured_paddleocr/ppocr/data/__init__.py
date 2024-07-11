@@ -34,7 +34,6 @@ import paddle.distributed as dist
 
 from ppocr.data.imaug import transform, create_operators
 from ppocr.data.simple_dataset import SimpleDataSet, MultiScaleDataSet
-from ppocr.data.lmdb_dataset import LMDBDataSet, LMDBDataSetSR, LMDBDataSetTableMaster
 from ppocr.data.pgnet_dataset import PGDataSet
 from ppocr.data.pubtab_dataset import PubTabDataSet
 from ppocr.data.multi_scale_sampler import MultiScaleSampler
@@ -83,11 +82,8 @@ def build_dataloader(config, mode, device, logger, seed=None):
 
     support_dict = [
         "SimpleDataSet",
-        "LMDBDataSet",
         "PGDataSet",
         "PubTabDataSet",
-        "LMDBDataSetSR",
-        "LMDBDataSetTableMaster",
         "MultiScaleDataSet",
         "TextDetDataset",
         "TextRecDataset",
