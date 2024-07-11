@@ -44,7 +44,6 @@ setup(
         "scikit-image",
         "imgaug",
         "pyclipper",
-        "lmdb",
         "tqdm",
         "numpy<2.0",
         "rapidfuzz",
