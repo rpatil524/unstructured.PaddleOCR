@@ -268,7 +268,13 @@ class SLAHead(nn.Layer):
         @param max_text_length: max text pred
         """
         super().__init__()
-        in_channels = in_channels[-1]
+
+        if isinstance(in_channels, int):
+            self.is_next = True
+            in_channels = 512
+        else:
+            self.is_next = False
+            in_channels = in_channels[-1]
         self.hidden_size = hidden_size
         self.max_text_length = max_text_length
         self.emb = self._char_to_onehot
@@ -337,13 +343,17 @@ class SLAHead(nn.Layer):
         )
 
     def forward(self, inputs, targets=None):
-        fea = inputs[-1]
-        batch_size = fea.shape[0]
-        if self.use_attn:
-            fea = fea + self.cross_atten(fea)
-        # reshape
-        fea = paddle.reshape(fea, [fea.shape[0], fea.shape[1], -1])
-        fea = fea.transpose([0, 2, 1])  # (NTC)(batch, width, channels)
+        if self.is_next == True:
+            fea = inputs
+            batch_size = fea.shape[0]
+        else:
+            fea = inputs[-1]
+            batch_size = fea.shape[0]
+            if self.use_attn:
+                fea = fea + self.cross_atten(fea)
+            # reshape
+            fea = paddle.reshape(fea, [fea.shape[0], fea.shape[1], -1])
+            fea = fea.transpose([0, 2, 1])  # (NTC)(batch, width, channels)
 
         hidden = paddle.zeros((batch_size, self.hidden_size))
         structure_preds = paddle.zeros(
@@ -357,7 +367,7 @@ class SLAHead(nn.Layer):
 
         if self.training and targets is not None:
             structure = targets[0]
-            max_len = targets[-2].max()
+            max_len = targets[-2].max().astype("int32")
             for i in range(max_len + 1):
                 hidden, structure_step, loc_step = self._decode(
                     structure[:, i], fea, hidden
@@ -368,12 +378,10 @@ class SLAHead(nn.Layer):
             loc_preds = loc_preds[:, : max_len + 1]
         else:
             structure_ids = paddle.zeros(
-                (batch_size, self.max_text_length + 1), dtype=paddle.int64
+                (batch_size, self.max_text_length + 1), dtype="int32"
             )
             pre_chars = paddle.zeros(shape=[batch_size], dtype="int32")
             max_text_length = paddle.to_tensor(self.max_text_length)
-            # for export
-            loc_step, structure_step = None, None
             for i in range(max_text_length + 1):
                 hidden, structure_step, loc_step = self._decode(pre_chars, fea, hidden)
                 pre_chars = structure_step.argmax(axis=1, dtype="int32")

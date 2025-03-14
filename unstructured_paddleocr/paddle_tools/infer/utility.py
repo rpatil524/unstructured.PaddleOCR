@@ -15,7 +15,6 @@
 import argparse
 import os
 import sys
-import platform
 import cv2
 import numpy as np
 import paddle
@@ -23,7 +22,6 @@ import PIL
 from PIL import Image, ImageDraw, ImageFont
 import math
 from paddle import inference
-import time
 import random
 from ppocr.utils.logging import get_logger
 
@@ -43,6 +41,12 @@ def init_args():
     parser.add_argument("--use_xpu", type=str2bool, default=False)
     parser.add_argument("--use_npu", type=str2bool, default=False)
     parser.add_argument("--use_mlu", type=str2bool, default=False)
+    parser.add_argument(
+        "--use_gcu",
+        type=str2bool,
+        default=False,
+        help="Use Enflame GCU(General Compute Unit)",
+    )
     parser.add_argument("--ir_optim", type=str2bool, default=True)
     parser.add_argument("--use_tensorrt", type=str2bool, default=False)
     parser.add_argument("--min_subgraph_size", type=int, default=15)
@@ -59,7 +63,7 @@ def init_args():
     parser.add_argument("--det_limit_type", type=str, default="max")
     parser.add_argument("--det_box_type", type=str, default="quad")
 
-    # DB parmas
+    # DB params
     parser.add_argument("--det_db_thresh", type=float, default=0.3)
     parser.add_argument("--det_db_box_thresh", type=float, default=0.6)
     parser.add_argument("--det_db_unclip_ratio", type=float, default=1.5)
@@ -67,22 +71,22 @@ def init_args():
     parser.add_argument("--use_dilation", type=str2bool, default=False)
     parser.add_argument("--det_db_score_mode", type=str, default="fast")
 
-    # EAST parmas
+    # EAST params
     parser.add_argument("--det_east_score_thresh", type=float, default=0.8)
     parser.add_argument("--det_east_cover_thresh", type=float, default=0.1)
     parser.add_argument("--det_east_nms_thresh", type=float, default=0.2)
 
-    # SAST parmas
+    # SAST params
     parser.add_argument("--det_sast_score_thresh", type=float, default=0.5)
     parser.add_argument("--det_sast_nms_thresh", type=float, default=0.2)
 
-    # PSE parmas
+    # PSE params
     parser.add_argument("--det_pse_thresh", type=float, default=0)
     parser.add_argument("--det_pse_box_thresh", type=float, default=0.85)
     parser.add_argument("--det_pse_min_area", type=float, default=16)
     parser.add_argument("--det_pse_scale", type=int, default=1)
 
-    # FCE parmas
+    # FCE params
     parser.add_argument("--scales", type=list, default=[8, 16, 32])
     parser.add_argument("--alpha", type=float, default=1.0)
     parser.add_argument("--beta", type=float, default=1.0)
@@ -108,7 +112,7 @@ def init_args():
     parser.add_argument("--e2e_limit_side_len", type=float, default=768)
     parser.add_argument("--e2e_limit_type", type=str, default="max")
 
-    # PGNet parmas
+    # PGNet params
     parser.add_argument("--e2e_pgnet_score_thresh", type=float, default=0.5)
     parser.add_argument(
         "--e2e_char_dict_path", type=str, default="./ppocr/utils/ic15_dict.txt"
@@ -129,7 +133,7 @@ def init_args():
     parser.add_argument("--use_pdserving", type=str2bool, default=False)
     parser.add_argument("--warmup", type=str2bool, default=False)
 
-    # SR parmas
+    # SR params
     parser.add_argument("--sr_model_dir", type=str)
     parser.add_argument("--sr_image_shape", type=str, default="3, 32, 128")
     parser.add_argument("--sr_batch_num", type=int, default=1)
@@ -149,6 +153,8 @@ def init_args():
 
     parser.add_argument("--show_log", type=str2bool, default=True)
     parser.add_argument("--use_onnx", type=str2bool, default=False)
+    parser.add_argument("--onnx_providers", nargs="+", type=str, default=False)
+    parser.add_argument("--onnx_sess_options", type=list, default=False)
 
     # extended function
     parser.add_argument(
@@ -195,7 +201,16 @@ def create_predictor(args, mode, logger):
         model_file_path = model_dir
         if not os.path.exists(model_file_path):
             raise ValueError("not find model file path {}".format(model_file_path))
-        if args.use_gpu:
+
+        sess_options = args.onnx_sess_options or None
+
+        if args.onnx_providers and len(args.onnx_providers) > 0:
+            sess = ort.InferenceSession(
+                model_file_path,
+                providers=args.onnx_providers,
+                sess_options=sess_options,
+            )
+        elif args.use_gpu:
             sess = ort.InferenceSession(
                 model_file_path,
                 providers=[
@@ -204,30 +219,44 @@ def create_predictor(args, mode, logger):
                         {"device_id": args.gpu_id, "cudnn_conv_algo_search": "DEFAULT"},
                     )
                 ],
+                sess_options=sess_options,
             )
         else:
             sess = ort.InferenceSession(
-                model_file_path, providers=["CPUExecutionProvider"]
+                model_file_path,
+                providers=["CPUExecutionProvider"],
+                sess_options=sess_options,
             )
-        return sess, sess.get_inputs()[0], None, None
+        inputs = sess.get_inputs()
+        return (
+            sess,
+            inputs[0] if len(inputs) == 1 else [vo.name for vo in inputs],
+            None,
+            None,
+        )
 
     else:
         file_names = ["model", "inference"]
         for file_name in file_names:
-            model_file_path = "{}/{}.pdmodel".format(model_dir, file_name)
-            params_file_path = "{}/{}.pdiparams".format(model_dir, file_name)
-            if os.path.exists(model_file_path) and os.path.exists(params_file_path):
+            params_file_path = f"{model_dir}/{file_name}.pdiparams"
+            if os.path.exists(params_file_path):
                 break
-        if not os.path.exists(model_file_path):
-            raise ValueError(
-                "not find model.pdmodel or inference.pdmodel in {}".format(model_dir)
-            )
+
         if not os.path.exists(params_file_path):
+            raise ValueError(f"not find {file_name}.pdiparams in {model_dir}")
+
+        if not (
+            os.path.exists(f"{model_dir}/{file_name}.pdmodel")
+            or os.path.exists(f"{model_dir}/{file_name}.json")
+        ):
             raise ValueError(
-                "not find model.pdiparams or inference.pdiparams in {}".format(
-                    model_dir
-                )
+                f"neither {file_name}.json nor {file_name}.pdmodel was found in {model_dir}."
             )
+
+        if os.path.exists(f"{model_dir}/{file_name}.json"):
+            model_file_path = f"{model_dir}/{file_name}.json"
+        else:
+            model_file_path = f"{model_dir}/{file_name}.pdmodel"
 
         config = inference.Config(model_file_path, params_file_path)
 
@@ -253,7 +282,7 @@ def create_predictor(args, mode, logger):
                     workspace_size=1 << 30,
                     precision_mode=precision,
                     max_batch_size=args.max_batch_size,
-                    min_subgraph_size=args.min_subgraph_size,  # skip the minmum trt subgraph
+                    min_subgraph_size=args.min_subgraph_size,  # skip the minimum trt subgraph
                     use_calib_mode=False,
                 )
 
@@ -275,6 +304,34 @@ def create_predictor(args, mode, logger):
             config.enable_custom_device("mlu")
         elif args.use_xpu:
             config.enable_xpu(10 * 1024 * 1024)
+        elif args.use_gcu:  # for Enflame GCU(General Compute Unit)
+            assert paddle.device.is_compiled_with_custom_device("gcu"), (
+                "Args use_gcu cannot be set as True while your paddle "
+                "is not compiled with gcu! \nPlease try: \n"
+                "\t1. Install paddle-custom-gcu to run model on GCU. \n"
+                "\t2. Set use_gcu as False in args to run model on CPU."
+            )
+            import paddle_custom_device.gcu.passes as gcu_passes
+
+            gcu_passes.setUp()
+            if args.precision == "fp16":
+                config.enable_custom_device(
+                    "gcu", 0, paddle.inference.PrecisionType.Half
+                )
+                gcu_passes.set_exp_enable_mixed_precision_ops(config)
+            else:
+                config.enable_custom_device("gcu")
+
+            if paddle.framework.use_pir_api():
+                config.enable_new_ir(True)
+                config.enable_new_executor(True)
+                kPirGcuPasses = gcu_passes.inference_passes(
+                    use_pir=True, name="PaddleOCR"
+                )
+                config.enable_custom_passes(kPirGcuPasses, True)
+            else:
+                pass_builder = config.pass_builder()
+                gcu_passes.append_passes_for_legacy_ir(pass_builder, "PaddleOCR")
         else:
             config.disable_gpu()
             if args.enable_mkldnn:
@@ -291,8 +348,11 @@ def create_predictor(args, mode, logger):
         # enable memory optim
         config.enable_memory_optim()
         config.disable_glog_info()
-        config.delete_pass("conv_transpose_eltwiseadd_bn_fuse_pass")
+        if not args.use_gcu:  # for Enflame GCU(General Compute Unit)
+            config.delete_pass("conv_transpose_eltwiseadd_bn_fuse_pass")
         config.delete_pass("matmul_transpose_reshape_fuse_pass")
+        if mode == "rec" and args.rec_algorithm == "SRN":
+            config.delete_pass("gpu_cpu_map_matmul_v2_to_matmul_pass")
         if mode == "re":
             config.delete_pass("simplify_with_basic_ops_pass")
         if mode == "table":
@@ -333,20 +393,23 @@ def get_output_tensors(args, mode, predictor):
 
 
 def get_infer_gpuid():
-    sysstr = platform.system()
-    if sysstr == "Windows":
-        return 0
+    """
+    Get the GPU ID to be used for inference.
 
+    Returns:
+        int: The GPU ID to be used for inference.
+    """
+    logger = get_logger()
     if not paddle.device.is_compiled_with_rocm:
-        cmd = "env | grep CUDA_VISIBLE_DEVICES"
+        gpu_id_str = os.environ.get("CUDA_VISIBLE_DEVICES", "0")
     else:
-        cmd = "env | grep HIP_VISIBLE_DEVICES"
-    env_cuda = os.popen(cmd).readlines()
-    if len(env_cuda) == 0:
-        return 0
-    else:
-        gpu_id = env_cuda[0].strip().split("=")[1]
-        return int(gpu_id[0])
+        gpu_id_str = os.environ.get("HIP_VISIBLE_DEVICES", "0")
+
+    gpu_ids = gpu_id_str.split(",")
+    logger.warning(
+        "The first GPU is used for inference by default, GPU ID: {}".format(gpu_ids[0])
+    )
+    return int(gpu_ids[0])
 
 
 def draw_e2e_res(dt_boxes, strs, img_path):
@@ -558,7 +621,7 @@ def text_visual(
         ), "The number of txts and corresponding scores must match"
 
     def create_blank_img():
-        blank_img = np.ones(shape=[img_h, img_w], dtype=np.int8) * 255
+        blank_img = np.ones(shape=[img_h, img_w], dtype=np.uint8) * 255
         blank_img[:, img_w - 1 :] = 0
         blank_img = Image.fromarray(blank_img).convert("RGB")
         draw_txt = ImageDraw.Draw(blank_img)

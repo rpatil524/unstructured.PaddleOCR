@@ -37,7 +37,7 @@ def convert_info_docx(img, res, save_folder, img_name):
 
     flag = 1
     for i, region in enumerate(res):
-        if len(region["res"]) == 0:
+        if not region["res"] and region["type"].lower() != "figure":
             continue
         img_idx = region["img_idx"]
         if flag == 2 and region["layout"] == "single":
@@ -67,6 +67,8 @@ def convert_info_docx(img, res, save_folder, img_name):
             parser = HtmlToDocx()
             parser.table_style = "TableGrid"
             parser.handle_table(region["res"]["html"], doc)
+        elif region["type"] == "equation" and "latex" in region["res"]:
+            pass
         else:
             paragraph = doc.add_paragraph()
             paragraph_format = paragraph.paragraph_format

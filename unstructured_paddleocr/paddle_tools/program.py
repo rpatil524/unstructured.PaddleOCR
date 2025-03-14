@@ -17,6 +17,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import gc
 import sys
 import platform
 import yaml
@@ -27,6 +28,7 @@ import paddle.distributed as dist
 from tqdm import tqdm
 import cv2
 import numpy as np
+import copy
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 from ppocr.utils.stats import TrainingStats
@@ -36,6 +38,7 @@ from ppocr.utils.logging import get_logger
 from ppocr.utils.loggers import WandbLogger, Loggers
 from ppocr.utils import profiler
 from ppocr.data import build_dataloader
+from ppocr.utils.export_model import export
 
 
 class ArgsParser(ArgumentParser):
@@ -112,7 +115,7 @@ def merge_config(config, opts):
     return config
 
 
-def check_device(use_gpu, use_xpu=False, use_npu=False, use_mlu=False):
+def check_device(use_gpu, use_xpu=False, use_npu=False, use_mlu=False, use_gcu=False):
     """
     Log error and exit when set use_gpu=true in paddlepaddle
     cpu version.
@@ -150,6 +153,9 @@ def check_device(use_gpu, use_xpu=False, use_npu=False, use_mlu=False):
                     sys.exit(1)
         if use_mlu and not paddle.device.is_compiled_with_mlu():
             print(err.format("use_mlu", "mlu", "mlu", "use_mlu"))
+            sys.exit(1)
+        if use_gcu and not paddle.device.is_compiled_with_custom_device("gcu"):
+            print(err.format("use_gcu", "gcu", "gcu", "use_gcu"))
             sys.exit(1)
     except Exception as e:
         pass
@@ -204,6 +210,8 @@ def train(
     eval_batch_step = config["Global"]["eval_batch_step"]
     eval_batch_epoch = config["Global"].get("eval_batch_epoch", None)
     profiler_options = config["profiler_options"]
+    print_mem_info = config["Global"].get("print_mem_info", True)
+    uniform_output_enabled = config["Global"].get("uniform_output_enabled", False)
 
     global_step = 0
     if "global_step" in pre_best_model_dict:
@@ -302,6 +310,7 @@ def train(
             )
 
         for idx, batch in enumerate(train_dataloader):
+            model.train()
             profiler.add_profiler_step(profiler_options)
             train_reader_cost += time.time() - reader_start
             if idx >= max_iter:
@@ -324,6 +333,13 @@ def train(
                         preds = model(batch)
                     elif algorithm in ["CAN"]:
                         preds = model(batch[:3])
+                    elif algorithm in [
+                        "LaTeXOCR",
+                        "UniMERNet",
+                        "PP-FormulaNet-S",
+                        "PP-FormulaNet-L",
+                    ]:
+                        preds = model(batch)
                     else:
                         preds = model(images)
                 preds = to_float32(preds)
@@ -339,6 +355,13 @@ def train(
                     preds = model(batch)
                 elif algorithm in ["CAN"]:
                     preds = model(batch[:3])
+                elif algorithm in [
+                    "LaTeXOCR",
+                    "UniMERNet",
+                    "PP-FormulaNet-S",
+                    "PP-FormulaNet-L",
+                ]:
+                    preds = model(batch)
                 else:
                     preds = model(images)
                 loss = loss_class(preds, batch)
@@ -360,6 +383,18 @@ def train(
                 elif algorithm in ["CAN"]:
                     model_type = "can"
                     eval_class(preds[0], batch[2:], epoch_reset=(idx == 0))
+                elif algorithm in ["LaTeXOCR"]:
+                    model_type = "latexocr"
+                    post_result = post_process_class(preds, batch[1], mode="train")
+                    eval_class(post_result[0], post_result[1], epoch_reset=(idx == 0))
+                elif algorithm in ["UniMERNet"]:
+                    model_type = "unimernet"
+                    post_result = post_process_class(preds[0], batch[1], mode="train")
+                    eval_class(post_result[0], post_result[1], epoch_reset=(idx == 0))
+                elif algorithm in ["PP-FormulaNet-S", "PP-FormulaNet-L"]:
+                    model_type = "pp_formulanet"
+                    post_result = post_process_class(preds[0], batch[1], mode="train")
+                    eval_class(post_result[0], post_result[1], epoch_reset=(idx == 0))
                 else:
                     if config["Loss"]["name"] in [
                         "MultiLoss",
@@ -398,9 +433,8 @@ def train(
                     metrics=train_stats.get(), prefix="TRAIN", step=global_step
                 )
 
-            if dist.get_rank() == 0 and (
-                (global_step > 0 and global_step % print_batch_step == 0)
-                or (idx >= len(train_dataloader) - 1)
+            if (global_step > 0 and global_step % print_batch_step == 0) or (
+                idx >= len(train_dataloader) - 1
             ):
                 logs = train_stats.log()
 
@@ -410,13 +444,13 @@ def train(
                 eta_sec_format = str(datetime.timedelta(seconds=int(eta_sec)))
                 max_mem_reserved_str = ""
                 max_mem_allocated_str = ""
-                if paddle.device.is_compiled_with_cuda():
-                    max_mem_reserved_str = f"max_mem_reserved: {paddle.device.cuda.max_memory_reserved() // (1024 ** 2)} MB,"
-                    max_mem_allocated_str = f"max_mem_allocated: {paddle.device.cuda.max_memory_allocated() // (1024 ** 2)} MB"
+                if paddle.device.is_compiled_with_cuda() and print_mem_info:
+                    max_mem_reserved_str = f", max_mem_reserved: {paddle.device.cuda.max_memory_reserved() // (1024 ** 2)} MB,"
+                    max_mem_allocated_str = f" max_mem_allocated: {paddle.device.cuda.max_memory_allocated() // (1024 ** 2)} MB"
                 strs = (
                     "epoch: [{}/{}], global_step: {}, {}, avg_reader_cost: "
                     "{:.5f} s, avg_batch_cost: {:.5f} s, avg_samples: {}, "
-                    "ips: {:.5f} samples/s, eta: {}, {} {}".format(
+                    "ips: {:.5f} samples/s, eta: {}{}{}".format(
                         epoch,
                         epoch_num,
                         global_step,
@@ -442,7 +476,7 @@ def train(
                 and dist.get_rank() == 0
             ):
                 if model_average:
-                    Model_Average = paddle.incubate.optimizer.ModelAverage(
+                    Model_Average = paddle.incubate.ModelAverage(
                         0.15,
                         parameters=model.parameters(),
                         min_average_window=10000,
@@ -476,14 +510,30 @@ def train(
                 if cur_metric[main_indicator] >= best_model_dict[main_indicator]:
                     best_model_dict.update(cur_metric)
                     best_model_dict["best_epoch"] = epoch
+                    prefix = "best_accuracy"
+                    if uniform_output_enabled:
+                        export(
+                            config,
+                            model,
+                            os.path.join(save_model_dir, prefix, "inference"),
+                        )
+                        gc.collect()
+                        model_info = {"epoch": epoch, "metric": best_model_dict}
+                    else:
+                        model_info = None
                     save_model(
                         model,
                         optimizer,
-                        save_model_dir,
+                        (
+                            os.path.join(save_model_dir, prefix)
+                            if uniform_output_enabled
+                            else save_model_dir
+                        ),
                         logger,
                         config,
                         is_best=True,
-                        prefix="best_accuracy",
+                        prefix=prefix,
+                        save_model_info=model_info,
                         best_model_dict=best_model_dict,
                         epoch=epoch,
                         global_step=global_step,
@@ -512,14 +562,26 @@ def train(
 
             reader_start = time.time()
         if dist.get_rank() == 0:
+            prefix = "latest"
+            if uniform_output_enabled:
+                export(config, model, os.path.join(save_model_dir, prefix, "inference"))
+                gc.collect()
+                model_info = {"epoch": epoch, "metric": best_model_dict}
+            else:
+                model_info = None
             save_model(
                 model,
                 optimizer,
-                save_model_dir,
+                (
+                    os.path.join(save_model_dir, prefix)
+                    if uniform_output_enabled
+                    else save_model_dir
+                ),
                 logger,
                 config,
                 is_best=False,
-                prefix="latest",
+                prefix=prefix,
+                save_model_info=model_info,
                 best_model_dict=best_model_dict,
                 epoch=epoch,
                 global_step=global_step,
@@ -529,17 +591,30 @@ def train(
                 log_writer.log_model(is_best=False, prefix="latest")
 
         if dist.get_rank() == 0 and epoch > 0 and epoch % save_epoch_step == 0:
+            prefix = "iter_epoch_{}".format(epoch)
+            if uniform_output_enabled:
+                export(config, model, os.path.join(save_model_dir, prefix, "inference"))
+                gc.collect()
+                model_info = {"epoch": epoch, "metric": best_model_dict}
+            else:
+                model_info = None
             save_model(
                 model,
                 optimizer,
-                save_model_dir,
+                (
+                    os.path.join(save_model_dir, prefix)
+                    if uniform_output_enabled
+                    else save_model_dir
+                ),
                 logger,
                 config,
                 is_best=False,
-                prefix="iter_epoch_{}".format(epoch),
+                prefix=prefix,
+                save_model_info=model_info,
                 best_model_dict=best_model_dict,
                 epoch=epoch,
                 global_step=global_step,
+                done_flag=epoch == config["Global"]["epoch_num"],
             )
             if log_writer is not None:
                 log_writer.log_model(
@@ -600,6 +675,8 @@ def eval(
                         preds = model(batch)
                     elif model_type in ["can"]:
                         preds = model(batch[:3])
+                    elif model_type in ["latexocr"]:
+                        preds = model(batch)
                     elif model_type in ["sr"]:
                         preds = model(batch)
                         sr_img = preds["sr_img"]
@@ -614,6 +691,8 @@ def eval(
                     preds = model(batch)
                 elif model_type in ["can"]:
                     preds = model(batch[:3])
+                elif model_type in ["latexocr", "unimernet", "pp_formulanet"]:
+                    preds = model(batch)
                 elif model_type in ["sr"]:
                     preds = model(batch)
                     sr_img = preds["sr_img"]
@@ -640,6 +719,9 @@ def eval(
                 eval_class(preds, batch_numpy)
             elif model_type in ["can"]:
                 eval_class(preds[0], batch_numpy[2:], epoch_reset=(idx == 0))
+            elif model_type in ["latexocr", "unimernet", "pp_formulanet"]:
+                post_result = post_process_class(preds, batch[1], "eval")
+                eval_class(post_result[0], post_result[1], epoch_reset=(idx == 0))
             else:
                 post_result = post_process_class(preds, batch_numpy[1])
                 eval_class(post_result, batch_numpy)
@@ -652,7 +734,11 @@ def eval(
 
     pbar.close()
     model.train()
-    metric["fps"] = total_frame / total_time
+    # Avoid ZeroDivisionError
+    if total_time > 0:
+        metric["fps"] = total_frame / total_time
+    else:
+        metric["fps"] = 0  # or set to a fallback value
     return metric
 
 
@@ -725,13 +811,16 @@ def preprocess(is_train=False):
         log_file = "{}/train.log".format(save_model_dir)
     else:
         log_file = None
-    logger = get_logger(log_file=log_file)
+
+    log_ranks = config["Global"].get("log_ranks", "0")
+    logger = get_logger(log_file=log_file, log_ranks=log_ranks)
 
     # check if set use_gpu=True in paddlepaddle cpu version
     use_gpu = config["Global"].get("use_gpu", False)
     use_xpu = config["Global"].get("use_xpu", False)
     use_npu = config["Global"].get("use_npu", False)
     use_mlu = config["Global"].get("use_mlu", False)
+    use_gcu = config["Global"].get("use_gcu", False)
 
     alg = config["Architecture"]["algorithm"]
     assert alg in [
@@ -777,6 +866,11 @@ def preprocess(is_train=False):
         "SVTR_HGNet",
         "ParseQ",
         "CPPD",
+        "LaTeXOCR",
+        "UniMERNet",
+        "SLANeXt",
+        "PP-FormulaNet-S",
+        "PP-FormulaNet-L",
     ]
 
     if use_xpu:
@@ -785,9 +879,11 @@ def preprocess(is_train=False):
         device = "npu:{0}".format(os.getenv("FLAGS_selected_npus", 0))
     elif use_mlu:
         device = "mlu:{0}".format(os.getenv("FLAGS_selected_mlus", 0))
+    elif use_gcu:  # Use Enflame GCU(General Compute Unit)
+        device = "gcu:{0}".format(os.getenv("FLAGS_selected_gcus", 0))
     else:
         device = "gpu:{}".format(dist.ParallelEnv().dev_id) if use_gpu else "cpu"
-    check_device(use_gpu, use_xpu, use_npu, use_mlu)
+    check_device(use_gpu, use_xpu, use_npu, use_mlu, use_gcu)
 
     device = paddle.set_device(device)
 

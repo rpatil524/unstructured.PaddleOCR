@@ -18,12 +18,12 @@ import importlib
 
 __dir__ = os.path.dirname(__file__)
 
-import paddle
 from paddle.utils import try_import
 
 sys.path.append(os.path.join(__dir__, ""))
 
 import cv2
+from copy import deepcopy
 import logging
 import numpy as np
 from pathlib import Path
@@ -31,10 +31,25 @@ import base64
 from io import BytesIO
 import pprint
 from PIL import Image
-from .paddle_tools.infer import predict_system
-from .ppocr.utils.logging import get_logger
 
-from .ppocr.utils.utility import (
+
+def _import_file(module_name, file_path, make_importable=False):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if make_importable:
+        sys.modules[module_name] = module
+    return module
+
+
+tools = _import_file(
+    "tools", os.path.join(__dir__, "tools/__init__.py"), make_importable=True
+)
+ppocr = importlib.import_module("ppocr", "paddleocr")
+ppstructure = importlib.import_module("ppstructure", "paddleocr")
+from ppocr.utils.logging import get_logger
+
+from ppocr.utils.utility import (
     check_and_read,
     get_image_file_list,
     alpha_to_color,
@@ -46,9 +61,12 @@ from .ppocr.utils.network import (
     is_link,
     confirm_model_dir_url,
 )
-from .paddle_tools.infer.utility import draw_ocr, str2bool, check_gpu
-from .ppstructure.utility import init_args, draw_structure_result
-from .ppstructure.predict_system import StructureSystem, save_structure_res, to_excel
+from tools.infer import predict_system
+from tools.infer.utility import draw_ocr, str2bool, check_gpu
+from ppstructure.utility import init_args, draw_structure_result
+from ppstructure.predict_system import StructureSystem, save_structure_res, to_excel
+from ppstructure.recovery.recovery_to_doc import sorted_layout_boxes, convert_info_docx
+from ppstructure.recovery.recovery_to_markdown import convert_info_markdown
 
 logger = get_logger()
 
@@ -60,11 +78,14 @@ __all__ = [
     "save_structure_res",
     "download_with_progressbar",
     "to_excel",
+    "sorted_layout_boxes",
+    "convert_info_docx",
+    "convert_info_markdown",
 ]
 
 SUPPORT_DET_MODEL = ["DB"]
 SUPPORT_REC_MODEL = ["CRNN", "SVTR_LCNet"]
-BASE_DIR = os.path.expanduser("~/.paddleocr/")
+BASE_DIR = os.environ.get("PADDLE_OCR_BASE_DIR", os.path.expanduser("~/.paddleocr/"))
 
 DEFAULT_OCR_MODEL_VERSION = "PP-OCRv4"
 SUPPORT_OCR_MODEL_VERSION = ["PP-OCR", "PP-OCRv2", "PP-OCRv3", "PP-OCRv4"]
@@ -88,6 +109,10 @@ MODEL_URLS = {
                 "ch": {
                     "url": "https://paddleocr.bj.bcebos.com/PP-OCRv4/chinese/ch_PP-OCRv4_rec_infer.tar",
                     "dict_path": "./ppocr/utils/ppocr_keys_v1.txt",
+                },
+                "ch_doc": {
+                    "url": "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0rc0/PP-OCRv4_server_rec_doc_infer.tar",
+                    "dict_path": "./ppocr/utils/dict/ppocrv4_doc_dict.txt",
                 },
                 "en": {
                     "url": "https://paddleocr.bj.bcebos.com/PP-OCRv4/english/en_PP-OCRv4_rec_infer.tar",
@@ -319,11 +344,11 @@ MODEL_URLS = {
         "PP-StructureV2": {
             "table": {
                 "en": {
-                    "url": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
+                    "url": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
                     "dict_path": "ppocr/utils/dict/table_structure_dict.txt",
                 },
                 "ch": {
-                    "url": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/ch_ppstructure_mobile_v2.0_SLANet_infer.tar",
+                    "url": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/ch_ppstructure_mobile_v2.0_SLANet_infer.tar",
                     "dict_path": "ppocr/utils/dict/table_structure_dict_ch.txt",
                 },
             },
@@ -335,6 +360,16 @@ MODEL_URLS = {
                 "ch": {
                     "url": "https://paddleocr.bj.bcebos.com/ppstructure/models/layout/picodet_lcnet_x1_0_fgd_layout_cdla_infer.tar",
                     "dict_path": "ppocr/utils/dict/layout_dict/layout_cdla_dict.txt",
+                },
+            },
+            "formula": {
+                "en": {
+                    "url": "https://paddleocr.bj.bcebos.com/contribution/rec_latex_ocr_infer.tar",
+                    "dict_path": "ppocr/utils/dict/latex_ocr_tokenizer.json",
+                },
+                "ch": {
+                    "url": "https://paddleocr.bj.bcebos.com/contribution/rec_latex_ocr_infer.tar",
+                    "dict_path": "ppocr/utils/dict/latex_ocr_tokenizer.json",
                 },
             },
         },
@@ -377,6 +412,7 @@ def parse_args(mMain=True):
             "rec_char_dict_path",
             "table_char_dict_path",
             "layout_dict_path",
+            "formula_char_dict_path",
         ]:
             action.default = None
     if mMain:
@@ -480,7 +516,7 @@ def parse_lang(lang):
     ), "param lang must in {}, but got {}".format(
         MODEL_URLS["OCR"][DEFAULT_OCR_MODEL_VERSION]["rec"].keys(), lang
     )
-    if lang == "ch":
+    if lang in ["ch", "ch_doc"]:
         det_lang = "ch"
     elif lang == "structure":
         det_lang = "structure"
@@ -632,6 +668,8 @@ class PaddleOCR(predict_system.TextSystem):
             params.rec_image_shape = "3, 48, 320"
         else:
             params.rec_image_shape = "3, 32, 320"
+        if kwargs.get("rec_image_shape") is not None:
+            params.rec_image_shape = kwargs.get("rec_image_shape")
         # download model if using paddle infer
         if not params.use_onnx:
             maybe_download(params.det_model_dir, det_url)
@@ -669,15 +707,30 @@ class PaddleOCR(predict_system.TextSystem):
         """
         OCR with PaddleOCR
 
-        args:
-            img: img for OCR, support ndarray, img_path and list or ndarray
-            det: use text detection or not. If False, only rec will be exec. Default is True
-            rec: use text recognition or not. If False, only det will be exec. Default is True
-            cls: use angle classifier or not. Default is True. If True, the text with rotation of 180 degrees can be recognized. If no text is rotated by 180 degrees, use cls=False to get better performance. Text with rotation of 90 or 270 degrees can be recognized even if cls=False.
-            bin: binarize image to black and white. Default is False.
-            inv: invert image colors. Default is False.
-            alpha_color: set RGB color Tuple for transparent parts replacement. Default is pure white.
-            slice: use sliding window inference for large images, det and rec must be True. Requires int values for slice["horizontal_stride"], slice["vertical_stride"], slice["merge_x_thres"], slice["merge_y_thres] (See doc/doc_en/slice_en.md). Default is {}.
+        Args:
+            img: Image for OCR. It can be an ndarray, img_path, or a list of ndarrays.
+            det: Use text detection or not. If False, only text recognition will be executed. Default is True.
+            rec: Use text recognition or not. If False, only text detection will be executed. Default is True.
+            cls: Use angle classifier or not. Default is True. If True, the text with a rotation of 180 degrees can be recognized. If no text is rotated by 180 degrees, use cls=False to get better performance.
+            bin: Binarize image to black and white. Default is False.
+            inv: Invert image colors. Default is False.
+            alpha_color: Set RGB color Tuple for transparent parts replacement. Default is pure white.
+            slice: Use sliding window inference for large images. Both det and rec must be True. Requires int values for slice["horizontal_stride"], slice["vertical_stride"], slice["merge_x_thres"], slice["merge_y_thres"] (See doc/doc_en/slice_en.md). Default is {}.
+
+        Returns:
+            If both det and rec are True, returns a list of OCR results for each image. Each OCR result is a list of bounding boxes and recognized text for each detected text region.
+            If det is True and rec is False, returns a list of detected bounding boxes for each image.
+            If det is False and rec is True, returns a list of recognized text for each image.
+            If both det and rec are False, returns a list of angle classification results for each image.
+
+        Raises:
+            AssertionError: If the input image is not of type ndarray, list, str, or bytes.
+            SystemExit: If det is True and the input is a list of images.
+
+        Note:
+            - If the angle classifier is not initialized (use_angle_cls=False), it will not be used during the forward process.
+            - For PDF files, if the input is a list of images and the page_num is specified, only the first page_num images will be processed.
+            - The preprocess_image function is used to preprocess the input image by applying alpha color replacement, inversion, and binarization if specified.
         """
         assert isinstance(img, (np.ndarray, list, str, bytes))
         if isinstance(img, list) and det == True:
@@ -708,7 +761,7 @@ class PaddleOCR(predict_system.TextSystem):
 
         if det and rec:
             ocr_res = []
-            for idx, img in enumerate(imgs):
+            for img in imgs:
                 img = preprocess_image(img)
                 dt_boxes, rec_res, _ = self.__call__(img, cls, slice)
                 if not dt_boxes and not rec_res:
@@ -719,7 +772,7 @@ class PaddleOCR(predict_system.TextSystem):
             return ocr_res
         elif det and not rec:
             ocr_res = []
-            for idx, img in enumerate(imgs):
+            for img in imgs:
                 img = preprocess_image(img)
                 dt_boxes, elapse = self.text_detector(img)
                 if dt_boxes.size == 0:
@@ -731,7 +784,7 @@ class PaddleOCR(predict_system.TextSystem):
         else:
             ocr_res = []
             cls_res = []
-            for idx, img in enumerate(imgs):
+            for img in imgs:
                 if not isinstance(img, list):
                     img = preprocess_image(img)
                     img = [img]
@@ -747,7 +800,21 @@ class PaddleOCR(predict_system.TextSystem):
 
 
 class PPStructure(StructureSystem):
+    """
+    PPStructure class represents the structure analysis system for PaddleOCR.
+    """
+
     def __init__(self, **kwargs):
+        """
+        Initializes the PPStructure object with the given parameters.
+
+        Args:
+            **kwargs: Additional keyword arguments to customize the behavior of the structure analysis system.
+
+        Raises:
+            AssertionError: If the structure version is not supported.
+
+        """
         params = parse_args(mMain=False)
         params.__dict__.update(**kwargs)
         assert (
@@ -797,12 +864,21 @@ class PPStructure(StructureSystem):
             os.path.join(BASE_DIR, "whl", "layout"),
             layout_model_config["url"],
         )
+        formula_model_config = get_model_config(
+            "STRUCTURE", params.structure_version, "formula", lang
+        )
+        params.formula_model_dir, formula_url = confirm_model_dir_url(
+            params.formula_model_dir,
+            os.path.join(BASE_DIR, "whl", "formula"),
+            formula_model_config["url"],
+        )
         # download model
         if not params.use_onnx:
             maybe_download(params.det_model_dir, det_url)
             maybe_download(params.rec_model_dir, rec_url)
             maybe_download(params.table_model_dir, table_url)
             maybe_download(params.layout_model_dir, layout_url)
+            maybe_download(params.formula_model_dir, formula_url)
 
         if params.rec_char_dict_path is None:
             params.rec_char_dict_path = str(
@@ -816,6 +892,10 @@ class PPStructure(StructureSystem):
             params.layout_dict_path = str(
                 Path(__file__).parent / layout_model_config["dict_path"]
             )
+        if params.formula_char_dict_path is None:
+            params.formula_char_dict_path = str(
+                Path(__file__).parent / formula_model_config["dict_path"]
+            )
         logger.debug(params)
         super().__init__(params)
 
@@ -826,6 +906,19 @@ class PPStructure(StructureSystem):
         img_idx=0,
         alpha_color=(255, 255, 255),
     ):
+        """
+        Performs structure analysis on the input image.
+
+        Args:
+            img (str or numpy.ndarray): The input image to perform structure analysis on.
+            return_ocr_result_in_table (bool, optional): Whether to return OCR results in table format. Defaults to False.
+            img_idx (int, optional): The index of the image. Defaults to 0.
+            alpha_color (tuple, optional): The alpha color for transparent images. Defaults to (255, 255, 255).
+
+        Returns:
+            list or dict: The structure analysis results.
+
+        """
         img, flag_gif, flag_pdf = check_img(img, alpha_color)
         if isinstance(img, list) and flag_pdf:
             res_list = []
@@ -841,10 +934,23 @@ class PPStructure(StructureSystem):
 
 
 def main():
+    """
+    Main function for running PaddleOCR or PPStructure.
+
+    This function takes command line arguments, processes the images, and performs OCR or structure analysis based on the specified type.
+
+    Args:
+        None
+
+    Returns:
+        None
+    """
     # for cmd
     args = parse_args(mMain=True)
+    logger.info("for usage help, please use `paddleocr --help`")
     image_dir = args.image_dir
     if is_link(image_dir):
+        os.remove("tmp.jpg") if os.path.exists("tmp.jpg") else None
         download_with_progressbar(image_dir, "tmp.jpg")
         image_file_list = ["tmp.jpg"]
     else:
@@ -875,6 +981,9 @@ def main():
             if result is not None:
                 lines = []
                 for res in result:
+                    if res is None:
+                        logger.warning(f"No text found in image {img_path}")
+                        continue
                     for line in res:
                         logger.info(line)
                         lines.append(pprint.pformat(line) + "\n")
@@ -923,9 +1032,6 @@ def main():
                 save_structure_res(result, args.output, img_name, index)
 
                 if args.recovery and result != []:
-                    from copy import deepcopy
-                    from ppstructure.recovery.recovery_to_doc import sorted_layout_boxes
-
                     h, w, _ = img.shape
                     result_cp = deepcopy(result)
                     result_sorted = sorted_layout_boxes(result_cp, w)
@@ -933,9 +1039,9 @@ def main():
 
             if args.recovery and all_res != []:
                 try:
-                    from ppstructure.recovery.recovery_to_doc import convert_info_docx
-
                     convert_info_docx(img, all_res, args.output, img_name)
+                    if args.recovery_to_markdown:
+                        convert_info_markdown(all_res, args.output, img_name)
                 except Exception as ex:
                     logger.error(
                         "error in layout recovery image:{}, err msg: {}".format(

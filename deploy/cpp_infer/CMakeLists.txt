@@ -71,7 +71,7 @@ else()
     if(WITH_MKL)
         set(FLAG_OPENMP "-fopenmp")
     endif()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -o3 ${FLAG_OPENMP} -std=c++11")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O3 ${FLAG_OPENMP} -std=c++11")
     set(CMAKE_STATIC_LIBRARY_PREFIX "")
     message("cmake cxx flags" ${CMAKE_CXX_FLAGS})
 endif()
@@ -127,7 +127,7 @@ if(WITH_MKL)
             ${PADDLE_LIB}/third_party/install/mklml/lib/libiomp5${CMAKE_SHARED_LIBRARY_SUFFIX})
     execute_process(COMMAND cp -r ${PADDLE_LIB}/third_party/install/mklml/lib/libmklml_intel${CMAKE_SHARED_LIBRARY_SUFFIX} /usr/lib)
   endif ()
-  set(MKLDNN_PATH "${PADDLE_LIB}/third_party/install/mkldnn")
+  set(MKLDNN_PATH "${PADDLE_LIB}/third_party/install/onednn")
   if(EXISTS ${MKLDNN_PATH})
     include_directories("${MKLDNN_PATH}/include")
     if (WIN32)
@@ -223,9 +223,9 @@ if (WIN32 AND WITH_MKL)
     add_custom_command(TARGET ${DEMO_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/mklml/lib/mklml.dll ./mklml.dll
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/mklml/lib/libiomp5md.dll ./libiomp5md.dll
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/mkldnn/lib/mkldnn.dll ./mkldnn.dll
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/onednn/lib/mkldnn.dll ./mkldnn.dll
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/mklml/lib/mklml.dll ./release/mklml.dll
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/mklml/lib/libiomp5md.dll ./release/libiomp5md.dll
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/mkldnn/lib/mkldnn.dll ./release/mkldnn.dll
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${PADDLE_LIB}/third_party/install/onednn/lib/mkldnn.dll ./release/mkldnn.dll
     )
 endif()

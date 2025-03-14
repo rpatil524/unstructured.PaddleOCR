@@ -19,12 +19,20 @@ from __future__ import print_function
 import errno
 import os
 import pickle
-import six
+import json
 
 import paddle
 
 from ppocr.utils.logging import get_logger
 from ppocr.utils.network import maybe_download_params
+
+try:
+    import encryption  # Attempt to import the encryption module for AIStudio's encryption model
+
+    encrypted = encryption.is_encryption_needed()
+except ImportError:
+    get_logger().warning("Skipping import of the encryption module.")
+    encrypted = False  # Encryption is not needed if the module cannot be imported
 
 __all__ = ["load_model"]
 
@@ -68,9 +76,7 @@ def load_model(config, model, optimizer=None, model_type="det"):
         if checkpoints:
             if os.path.exists(os.path.join(checkpoints, "metric.states")):
                 with open(os.path.join(checkpoints, "metric.states"), "rb") as f:
-                    states_dict = (
-                        pickle.load(f) if six.PY2 else pickle.load(f, encoding="latin1")
-                    )
+                    states_dict = pickle.load(f, encoding="latin1")
                 best_model_dict = states_dict.get("best_model_dict", {})
                 if "epoch" in states_dict:
                     best_model_dict["start_epoch"] = states_dict["epoch"] + 1
@@ -139,10 +145,9 @@ def load_model(config, model, optimizer=None, model_type="det"):
 
         if os.path.exists(checkpoints + ".states"):
             with open(checkpoints + ".states", "rb") as f:
-                states_dict = (
-                    pickle.load(f) if six.PY2 else pickle.load(f, encoding="latin1")
-                )
+                states_dict = pickle.load(f, encoding="latin1")
             best_model_dict = states_dict.get("best_model_dict", {})
+            best_model_dict["acc"] = 0.0
             if "epoch" in states_dict:
                 best_model_dict["start_epoch"] = states_dict["epoch"] + 1
         logger.info("resume from {}".format(checkpoints))
@@ -247,6 +252,15 @@ def save_model(
         if prefix == "best_accuracy":
             arch.backbone.model.save_pretrained(best_model_path)
 
+    save_model_info = kwargs.pop("save_model_info", False)
+    if save_model_info:
+        with open(os.path.join(model_path, f"{prefix}.info.json"), "w") as f:
+            json.dump(kwargs, f)
+        logger.info("Already save model info in {}".format(model_path))
+        if prefix != "latest":
+            done_flag = kwargs.pop("done_flag", False)
+            update_train_results(config, prefix, save_model_info, done_flag=done_flag)
+
     # save metric and config
     with open(metric_prefix + ".states", "wb") as f:
         pickle.dump(kwargs, f, protocol=2)
@@ -254,3 +268,104 @@ def save_model(
         logger.info("save best model is to {}".format(model_prefix))
     else:
         logger.info("save model in {}".format(model_prefix))
+
+
+def update_train_results(config, prefix, metric_info, done_flag=False, last_num=5):
+    if paddle.distributed.get_rank() != 0:
+        return
+
+    assert last_num >= 1
+    train_results_path = os.path.join(
+        config["Global"]["save_model_dir"], "train_result.json"
+    )
+    save_model_tag = ["pdparams", "pdopt", "pdstates"]
+    save_inference_tag = ["inference_config", "pdmodel", "pdiparams", "pdiparams.info"]
+    if os.path.exists(train_results_path):
+        with open(train_results_path, "r") as fp:
+            train_results = json.load(fp)
+    else:
+        train_results = {}
+        train_results["model_name"] = config["Global"]["pdx_model_name"]
+        label_dict_path = config["Global"].get("character_dict_path", "")
+        if label_dict_path != "":
+            label_dict_path = os.path.abspath(label_dict_path)
+            if not os.path.exists(label_dict_path):
+                label_dict_path = ""
+        train_results["label_dict"] = label_dict_path
+        train_results["train_log"] = "train.log"
+        train_results["visualdl_log"] = ""
+        train_results["config"] = "config.yaml"
+        train_results["models"] = {}
+        for i in range(1, last_num + 1):
+            train_results["models"][f"last_{i}"] = {}
+        train_results["models"]["best"] = {}
+    train_results["done_flag"] = done_flag
+    if "best" in prefix:
+        if "acc" in metric_info["metric"]:
+            metric_score = metric_info["metric"]["acc"]
+        elif "precision" in metric_info["metric"]:
+            metric_score = metric_info["metric"]["precision"]
+        elif "exp_rate" in metric_info["metric"]:
+            metric_score = metric_info["metric"]["exp_rate"]
+        else:
+            raise ValueError("No metric score found.")
+        train_results["models"]["best"]["score"] = metric_score
+        for tag in save_model_tag:
+            if tag == "pdparams" and encrypted:
+                train_results["models"]["best"][tag] = os.path.join(
+                    prefix,
+                    (
+                        f"{prefix}.encrypted.{tag}"
+                        if tag != "pdstates"
+                        else f"{prefix}.states"
+                    ),
+                )
+            else:
+                train_results["models"]["best"][tag] = os.path.join(
+                    prefix,
+                    f"{prefix}.{tag}" if tag != "pdstates" else f"{prefix}.states",
+                )
+        for tag in save_inference_tag:
+            train_results["models"]["best"][tag] = os.path.join(
+                prefix,
+                "inference",
+                f"inference.{tag}" if tag != "inference_config" else "inference.yml",
+            )
+    else:
+        for i in range(last_num - 1, 0, -1):
+            train_results["models"][f"last_{i + 1}"] = train_results["models"][
+                f"last_{i}"
+            ].copy()
+        if "acc" in metric_info["metric"]:
+            metric_score = metric_info["metric"]["acc"]
+        elif "precision" in metric_info["metric"]:
+            metric_score = metric_info["metric"]["precision"]
+        elif "exp_rate" in metric_info["metric"]:
+            metric_score = metric_info["metric"]["exp_rate"]
+        else:
+            metric_score = 0
+        train_results["models"][f"last_{1}"]["score"] = metric_score
+        for tag in save_model_tag:
+            if tag == "pdparams" and encrypted:
+                train_results["models"][f"last_{1}"][tag] = os.path.join(
+                    prefix,
+                    (
+                        f"{prefix}.encrypted.{tag}"
+                        if tag != "pdstates"
+                        else f"{prefix}.states"
+                    ),
+                )
+            else:
+                train_results["models"][f"last_{1}"][tag] = os.path.join(
+                    prefix,
+                    f"{prefix}.{tag}" if tag != "pdstates" else f"{prefix}.states",
+                )
+        for tag in save_inference_tag:
+            train_results["models"][f"last_{1}"][tag] = os.path.join(
+                prefix,
+                "inference",
+                f"inference.{tag}" if tag != "inference_config" else "inference.yml",
+            )
+
+    with open(train_results_path, "w") as fp:
+        json.dump(train_results, fp)

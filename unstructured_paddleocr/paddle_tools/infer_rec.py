@@ -82,6 +82,12 @@ def main():
             config["Architecture"]["Head"]["out_channels_list"] = out_channels_list
         else:  # base rec model
             config["Architecture"]["Head"]["out_channels"] = char_num
+
+    if config["Architecture"].get("algorithm") in ["LaTeXOCR"]:
+        config["Architecture"]["Backbone"]["is_predict"] = True
+        config["Architecture"]["Backbone"]["is_export"] = True
+        config["Architecture"]["Head"]["is_export"] = True
+
     model = build_model(config["Architecture"])
 
     load_model(config, model)
@@ -128,7 +134,14 @@ def main():
             logger.info("infer_img: {}".format(file))
             with open(file, "rb") as f:
                 img = f.read()
-                data = {"image": img}
+                if config["Architecture"]["algorithm"] in [
+                    "UniMERNet",
+                    "PP-FormulaNet-S",
+                    "PP-FormulaNet-L",
+                ]:
+                    data = {"image": img, "filename": file}
+                else:
+                    data = {"image": img}
             batch = transform(data, ops)
             if config["Architecture"]["algorithm"] == "SRN":
                 encoder_word_pos_list = np.expand_dims(batch[1], axis=0)
@@ -182,6 +195,13 @@ def main():
                 info = json.dumps(rec_info, ensure_ascii=False)
             elif isinstance(post_result, list) and isinstance(post_result[0], int):
                 # for RFLearning CNT branch
+                info = str(post_result[0])
+            elif config["Architecture"]["algorithm"] in [
+                "LaTeXOCR",
+                "UniMERNet",
+                "PP-FormulaNet-S",
+                "PP-FormulaNet-L",
+            ]:
                 info = str(post_result[0])
             else:
                 if len(post_result[0]) >= 2:

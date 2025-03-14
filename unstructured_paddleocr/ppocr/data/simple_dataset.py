@@ -45,40 +45,14 @@ class SimpleDataSet(Dataset):
         self.data_dir = dataset_config["data_dir"]
         self.do_shuffle = loader_config["shuffle"]
         self.seed = seed
-        logger.info("Initialize indexs of datasets:%s" % label_file_list)
+        logger.info("Initialize indexes of datasets:%s" % label_file_list)
         self.data_lines = self.get_image_info_list(label_file_list, ratio_list)
         self.data_idx_order_list = list(range(len(self.data_lines)))
         if self.mode == "train" and self.do_shuffle:
             self.shuffle_data_random()
-
-        self.set_epoch_as_seed(self.seed, dataset_config)
-
         self.ops = create_operators(dataset_config["transforms"], global_config)
         self.ext_op_transform_idx = dataset_config.get("ext_op_transform_idx", 2)
         self.need_reset = True in [x < 1 for x in ratio_list]
-
-    def set_epoch_as_seed(self, seed, dataset_config):
-        if self.mode == "train":
-            try:
-                border_map_id = [
-                    index
-                    for index, dictionary in enumerate(dataset_config["transforms"])
-                    if "MakeBorderMap" in dictionary
-                ][0]
-                shrink_map_id = [
-                    index
-                    for index, dictionary in enumerate(dataset_config["transforms"])
-                    if "MakeShrinkMap" in dictionary
-                ][0]
-                dataset_config["transforms"][border_map_id]["MakeBorderMap"][
-                    "epoch"
-                ] = (seed if seed is not None else 0)
-                dataset_config["transforms"][shrink_map_id]["MakeShrinkMap"][
-                    "epoch"
-                ] = (seed if seed is not None else 0)
-            except Exception as E:
-                print(E)
-                return
 
     def get_image_info_list(self, file_list, ratio_list):
         if isinstance(file_list, str):
@@ -159,6 +133,7 @@ class SimpleDataSet(Dataset):
                 img = f.read()
                 data["image"] = img
             data["ext_data"] = self.get_ext_data()
+            data["filename"] = data["img_path"]
             outs = transform(data, self.ops)
         except:
             self.logger.error(
@@ -231,7 +206,7 @@ class MultiScaleDataSet(SimpleDataSet):
         return data
 
     def __getitem__(self, properties):
-        # properites is a tuple, contains (width, height, index)
+        # properties is a tuple, contains (width, height, index)
         img_height = properties[1]
         idx = properties[2]
         if self.ds_width and properties[3] is not None:

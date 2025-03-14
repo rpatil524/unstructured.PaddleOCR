@@ -59,7 +59,7 @@ URLs_EN = {
     # 下载英文轻量级PP-OCRv3模型的识别模型并解压
     "en_PP-OCRv3_rec_infer": "https://paddleocr.bj.bcebos.com/PP-OCRv3/english/en_PP-OCRv3_rec_infer.tar",
     # 下载超轻量级英文表格英文模型并解压
-    "en_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
+    "en_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
     # 英文版面分析模型
     "picodet_lcnet_x1_0_fgd_layout_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/layout/picodet_lcnet_x1_0_fgd_layout_infer.tar",
 }
@@ -74,7 +74,7 @@ URLs_CN = {
     # 下载中文轻量级PP-OCRv3模型的识别模型并解压
     "cn_PP-OCRv3_rec_infer": "https://paddleocr.bj.bcebos.com/PP-OCRv3/chinese/ch_PP-OCRv3_rec_infer.tar",
     # 下载超轻量级英文表格英文模型并解压
-    "cn_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
+    "cn_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
     # 中文版面分析模型
     "picodet_lcnet_x1_0_fgd_layout_cdla_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/layout/picodet_lcnet_x1_0_fgd_layout_cdla_infer.tar",
 }
@@ -450,12 +450,12 @@ class APP_Image2Doc(QWidget):
             # Must set image path list and language before start
             self.output_dir = os.path.join(
                 os.path.dirname(self.imagePaths[0]), "output"
-            )  # output_dir shold be same as imagepath
+            )  # output_dir should be same as imagepath
             self._thread.setOutputDir(self.output_dir)
             self._thread.setImagePath(self.imagePaths)
             self._thread.setLang(lang)
             self._thread.setPDFParser(pdfParser)
-            # disenble buttons
+            # disable buttons
             self.openFileButton.setEnabled(False)
             self.startCNButton.setEnabled(False)
             self.startENButton.setEnabled(False)
@@ -494,7 +494,7 @@ class APP_Image2Doc(QWidget):
         self.pb.setRange(0, max)
 
     def handleEndsignalSignal(self):
-        # enble buttons
+        # enable buttons
         self.openFileButton.setEnabled(True)
         self.startCNButton.setEnabled(True)
         self.startENButton.setEnabled(True)
