@@ -16,7 +16,7 @@ import ast
 import PIL
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-from paddle_tools.infer.utility import (
+from tools.infer.utility import (
     draw_ocr_box_txt,
     str2bool,
     str2int_tuple,

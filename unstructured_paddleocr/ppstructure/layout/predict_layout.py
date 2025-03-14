@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 import time
 
-import paddle_tools.infer.utility as utility
+import tools.infer.utility as utility
 from ppocr.data import create_operators, transform
 from ppocr.postprocess import build_post_process
 from ppocr.utils.logging import get_logger
