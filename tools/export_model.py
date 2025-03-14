@@ -12,7 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from setuptools import setup
+import os
+import sys
+
+__dir__ = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(__dir__)
+sys.path.insert(0, os.path.abspath(os.path.join(__dir__, "..")))
+
+import argparse
+
+from tools.program import load_config, merge_config, ArgsParser
+from ppocr.utils.export_model import export
 
 
-setup()
+def main():
+    FLAGS = ArgsParser().parse_args()
+    config = load_config(FLAGS.config)
+    config = merge_config(config, FLAGS.opt)
+    # export model
+    export(config)
+
+
+if __name__ == "__main__":
+    main()
