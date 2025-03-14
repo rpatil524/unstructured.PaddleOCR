@@ -3,7 +3,7 @@ requires = ["setuptools==72.1.0", "wheel", "setuptools_scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "paddleocr"
+name = "unstructured_paddleocr"
 # After each version release, the version number needs to be incremented
 dynamic = ["version"]
 description = "Awesome OCR toolkits based on PaddlePaddle(8.6M ultra-lightweight pre-trained model, support training and deployment among server, mobile, embedded and IoT devices)"
@@ -42,7 +42,6 @@ dependencies = [
     "shapely",
     "scikit-image",
     "pyclipper",
-    "lmdb",
     "tqdm",
     "numpy",
     "rapidfuzz",
@@ -62,17 +61,15 @@ dependencies = [
 ]
 
 [project.urls]
-homepage = "https://github.com/PaddlePaddle/PaddleOCR"
-documentation = "https://github.com/PaddlePaddle/PaddleOCR/blob/main/README.md"
-repository = "https://github.com/PaddlePaddle/PaddleOCR.git"
-issues = "https://github.com/PaddlePaddle/PaddleOCR/issues"
+homepage = "https://github.com/UnstructureIO/unstructured.PaddleOCR"
+documentation = "https://github.com/UnstructureIO/unstructured.PaddleOCR/blob/main/README.md"
+repository = "https://github.com/UnstructureIO/unstructured.PaddleOCR.git"
 
 [project.scripts]
-paddleocr = "paddleocr.paddleocr:main"
+paddleocr = "unstructured_paddleocr.unstructured_paddleocr:main"
 
 [tool.setuptools]
-packages = ["paddleocr"]
-package-dir = { "paddleocr" = "" }
+packages = ["unstructured_paddleocr", "unstructured_paddleocr.tools", "unstructured_paddleocr.tools.end2end", "unstructured_paddleocr.tools.infer"]
 include-package-data = true
 
 [tool.setuptools_scm]
