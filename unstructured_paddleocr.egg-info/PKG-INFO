@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: unstructured_paddleocr
-Version: 2.9.0.dev3+g8520ef7c7.d20250314
+Version: 2.10.0
 Summary: Awesome OCR toolkits based on PaddlePaddle(8.6M ultra-lightweight pre-trained model, support training and deployment among server, mobile, embedded and IoT devices)
 Author-email: PaddlePaddle <Paddle-better@baidu.com>
 Maintainer-email: PaddlePaddle <Paddle-better@baidu.com>
