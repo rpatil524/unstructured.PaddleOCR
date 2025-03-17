@@ -1,9 +1,8 @@
 shapely
 scikit-image
-imgaug
 pyclipper
 tqdm
-numpy<2.0
+numpy
 rapidfuzz
 opencv-python
 opencv-contrib-python
@@ -11,4 +10,6 @@ cython
 Pillow
 pyyaml
 requests
-pdf2image
+albumentations
+albucore
+packaging

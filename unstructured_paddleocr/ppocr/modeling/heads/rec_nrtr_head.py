@@ -23,7 +23,7 @@ from paddle.nn.initializer import XavierNormal as xavier_normal_
 
 
 class Transformer(nn.Layer):
-    """A transformer model. User is able to modify the attributes as needed. The architechture
+    """A transformer model. User is able to modify the attributes as needed. The architecture
     is based on the paper "Attention Is All You Need". Ashish Vaswani, Noam Shazeer,
     Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, and
     Illia Polosukhin. 2017. Attention is all you need. In Advances in Neural Information
@@ -355,7 +355,8 @@ class Transformer(nn.Layer):
         """
         mask = paddle.zeros([sz, sz], dtype="float32")
         mask_inf = paddle.triu(
-            paddle.full(shape=[sz, sz], dtype="float32", fill_value="-inf"), diagonal=1
+            paddle.full(shape=[sz, sz], dtype="float32", fill_value=float("-inf")),
+            diagonal=1,
         )
         mask = mask + mask_inf
         return mask.unsqueeze([0, 1])

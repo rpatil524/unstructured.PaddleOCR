@@ -22,7 +22,8 @@ import cv2
 import platform
 import numpy as np
 from paddle.utils import try_import
-import pdf2image
+
+fitz = try_import("fitz")
 from PIL import Image
 from qtpy.QtWidgets import (
     QApplication,
@@ -59,7 +60,7 @@ URLs_EN = {
     # 下载英文轻量级PP-OCRv3模型的识别模型并解压
     "en_PP-OCRv3_rec_infer": "https://paddleocr.bj.bcebos.com/PP-OCRv3/english/en_PP-OCRv3_rec_infer.tar",
     # 下载超轻量级英文表格英文模型并解压
-    "en_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
+    "en_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
     # 英文版面分析模型
     "picodet_lcnet_x1_0_fgd_layout_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/layout/picodet_lcnet_x1_0_fgd_layout_infer.tar",
 }
@@ -74,7 +75,7 @@ URLs_CN = {
     # 下载中文轻量级PP-OCRv3模型的识别模型并解压
     "cn_PP-OCRv3_rec_infer": "https://paddleocr.bj.bcebos.com/PP-OCRv3/chinese/ch_PP-OCRv3_rec_infer.tar",
     # 下载超轻量级英文表格英文模型并解压
-    "cn_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
+    "cn_ppstructure_mobile_v2.0_SLANet_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/en_ppstructure_mobile_v2.0_SLANet_infer.tar",
     # 中文版面分析模型
     "picodet_lcnet_x1_0_fgd_layout_cdla_infer": "https://paddleocr.bj.bcebos.com/ppstructure/models/layout/picodet_lcnet_x1_0_fgd_layout_cdla_infer.tar",
 }
@@ -102,7 +103,20 @@ def QImageToCvMat(incomingImage) -> np.array:
 
 def readImage(image_file) -> list:
     if os.path.basename(image_file)[-3:] == "pdf":
-        imgs = pdf2image.convert_from_path(image_file)
+        imgs = []
+        with fitz.open(image_file) as pdf:
+            for pg in range(0, pdf.pageCount):
+                page = pdf[pg]
+                mat = fitz.Matrix(2, 2)
+                pm = page.getPixmap(matrix=mat, alpha=False)
+
+                # if width or height > 2000 pixels, don't enlarge the image
+                if pm.width > 2000 or pm.height > 2000:
+                    pm = page.getPixmap(matrix=fitz.Matrix(1, 1), alpha=False)
+
+                img = Image.frombytes("RGB", [pm.width, pm.height], pm.samples)
+                img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                imgs.append(img)
     else:
         img = cv2.imread(image_file, cv2.IMREAD_COLOR)
         if img is not None:
@@ -450,12 +464,12 @@ class APP_Image2Doc(QWidget):
             # Must set image path list and language before start
             self.output_dir = os.path.join(
                 os.path.dirname(self.imagePaths[0]), "output"
-            )  # output_dir shold be same as imagepath
+            )  # output_dir should be same as imagepath
             self._thread.setOutputDir(self.output_dir)
             self._thread.setImagePath(self.imagePaths)
             self._thread.setLang(lang)
             self._thread.setPDFParser(pdfParser)
-            # disenble buttons
+            # disable buttons
             self.openFileButton.setEnabled(False)
             self.startCNButton.setEnabled(False)
             self.startENButton.setEnabled(False)
@@ -494,7 +508,7 @@ class APP_Image2Doc(QWidget):
         self.pb.setRange(0, max)
 
     def handleEndsignalSignal(self):
-        # enble buttons
+        # enable buttons
         self.openFileButton.setEnabled(True)
         self.startCNButton.setEnabled(True)
         self.startENButton.setEnabled(True)

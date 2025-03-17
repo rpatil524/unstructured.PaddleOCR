@@ -41,7 +41,7 @@ if [ ${MODE} = "benchmark_train" ];then
         fi
     fi
     if [[ ${model_name} =~ "ch_PP-OCRv4_mobile_det" ]];then
-        wget -nc -P  ./pretrain_models/ https://paddleocr.bj.bcebos.com/pretrained/PPLCNetV3_x0_75_ocr_det.pdparams  --no-check-certificate
+        wget -nc -P  ./pretrain_models/ https://paddleocr.bj.bcebos.com/pretrained/ch_PP-OCRv4_det_trained.pdparams  --no-check-certificate
         rm -rf ./train_data/icdar2015
         wget -nc -P ./train_data/ https://paddleocr.bj.bcebos.com/dataset/icdar2015_benckmark.tar --no-check-certificate
         cd ./train_data/ && tar xf icdar2015_benckmark.tar
@@ -49,7 +49,7 @@ if [ ${MODE} = "benchmark_train" ];then
         cd ../
     fi
     if [[ ${model_name} =~ "ch_PP-OCRv4_server_det" ]];then
-        wget -nc -P  ./pretrain_models/ https://paddleocr.bj.bcebos.com/pretrained/PPHGNet_small_ocr_det.pdparams  --no-check-certificate
+        wget -nc -P  ./pretrain_models/ https://paddleocr.bj.bcebos.com/pretrained/ch_PP-OCRv4_det_server_trained.pdparams  --no-check-certificate
         rm -rf ./train_data/icdar2015
         wget -nc -P ./train_data/ https://paddleocr.bj.bcebos.com/dataset/icdar2015_benckmark.tar --no-check-certificate
         cd ./train_data/ && tar xf icdar2015_benckmark.tar
@@ -144,12 +144,16 @@ if [ ${MODE} = "benchmark_train" ];then
         cd ../
     fi
     if [[ ${model_name} == "slanet" ]];then
-        wget -nc -P ./pretrain_models/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/en_ppstructure_mobile_v2.0_SLANet_train.tar --no-check-certificate
-        cd ./pretrain_models/ && tar xf en_ppstructure_mobile_v2.0_SLANet_train.tar  && cd ../
+        wget -nc -P ./pretrain_models/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/ch_ppstructure_mobile_v2.0_SLANet_train.tar --no-check-certificate
+        cd ./pretrain_models/ && tar xf ch_ppstructure_mobile_v2.0_SLANet_train.tar  && cd ../
         rm -rf ./train_data/pubtabnet
-        wget -nc -P ./train_data/ https://paddleocr.bj.bcebos.com/dataset/pubtabnet_benckmark.tar --no-check-certificate
-        cd ./train_data/ && tar xf pubtabnet_benckmark.tar
-        ln -s ./pubtabnet_benckmark ./pubtabnet
+        wget -nc -P ./train_data/ https://paddle-model-ecology.bj.bcebos.com/uapi/data/table_rec_dataset_examples.tar --no-check-certificate
+        cd ./train_data/ && tar xf table_rec_dataset_examples.tar
+        ln -s ./table_rec_dataset_examples ./pubtabnet
+        cd pubtabnet
+        for i in `seq 10`;do cp train.txt dup$i.txt;done
+        cat dup* > train.txt && rm -rf dup*
+        cd ../
         cd ../
     fi
     if [[ ${model_name} == "det_r50_dcn_fce_ctw_v2_0" ]]; then
@@ -616,7 +620,7 @@ elif [ ${MODE} = "whole_infer" ];then
         cd ../
     fi
     if [[ ${model_name} =~ "slanet" ]];then
-        wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/en_ppstructure_mobile_v2.0_SLANet_infer.tar --no-check-certificate
+        wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/en_ppstructure_mobile_v2.0_SLANet_infer.tar --no-check-certificate
         wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/PP-OCRv3/chinese/ch_PP-OCRv3_det_infer.tar --no-check-certificate
         wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/PP-OCRv3/chinese/ch_PP-OCRv3_rec_infer.tar --no-check-certificate
         cd ./inference/ && tar xf en_ppstructure_mobile_v2.0_SLANet_infer.tar && tar xf ch_PP-OCRv3_det_infer.tar && tar xf ch_PP-OCRv3_rec_infer.tar && cd ../
@@ -808,7 +812,7 @@ if [ ${MODE} = "cpp_infer" ];then
         fi
         cd ../
     elif [[ ${model_name} =~ "slanet" ]];then
-        wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/ch_ppstructure_mobile_v2.0_SLANet_infer.tar --no-check-certificate
+        wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/ch_ppstructure_mobile_v2.0_SLANet_infer.tar --no-check-certificate
         wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/PP-OCRv3/chinese/ch_PP-OCRv3_det_infer.tar --no-check-certificate
         wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/PP-OCRv3/chinese/ch_PP-OCRv3_rec_infer.tar --no-check-certificate
         cd ./inference/ && tar xf ch_ppstructure_mobile_v2.0_SLANet_infer.tar && tar xf ch_PP-OCRv3_det_infer.tar && tar xf ch_PP-OCRv3_rec_infer.tar && cd ../
@@ -895,7 +899,7 @@ if [ ${MODE} = "paddle2onnx_infer" ];then
         wget -nc  -P ./inference https://paddleocr.bj.bcebos.com/PP-OCRv3/chinese/ch_PP-OCRv3_rec_infer.tar --no-check-certificate
         cd ./inference && tar xf ch_PP-OCRv3_det_infer.tar && tar xf ch_PP-OCRv3_rec_infer.tar && cd ../
     elif [[ ${model_name} =~ "slanet" ]];then
-        wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/ch_ppstructure_mobile_v2.0_SLANet_infer.tar --no-check-certificate
+        wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/ppstructure/models/slanet/paddle3.0b2/ch_ppstructure_mobile_v2.0_SLANet_infer.tar --no-check-certificate
         cd ./inference/ && tar xf ch_ppstructure_mobile_v2.0_SLANet_infer.tar && cd ../
     elif [[ ${model_name} =~ "en_table_structure" ]];then
         wget -nc -P ./inference/ https://paddleocr.bj.bcebos.com/dygraph_v2.0/table/en_ppocr_mobile_v2.0_table_structure_infer.tar --no-check-certificate

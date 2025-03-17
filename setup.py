@@ -12,69 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from setuptools import setup, find_packages
-from io import open
+from setuptools import setup
 
 
-def load_requirements(file_list=None):
-    if file_list is None:
-        file_list = ["requirements.txt"]
-    if isinstance(file_list, str):
-        file_list = [file_list]
-    requirements = []
-    for file in file_list:
-        with open(file, encoding="utf-8-sig") as f:
-            requirements.extend(f.readlines())
-    return requirements
-
-
-def readme():
-    with open("README.md", encoding="utf-8-sig") as f:
-        README = f.read()
-    return README
-
-
-setup(
-    name="unstructured.paddleocr",
-    packages=find_packages(),
-    include_package_data=True,
-    version="2.8.1.0",
-    install_requires=[
-        "shapely",
-        "scikit-image",
-        "imgaug",
-        "pyclipper",
-        "tqdm",
-        "numpy<2.0",
-        "rapidfuzz",
-        "opencv-python",
-        "opencv-contrib-python",
-        "cython",
-        "Pillow",
-        "pyyaml",
-        "requests",
-        "pdf2image",
-    ],
-    license="Apache License 2.0",
-    description="Awesome OCR toolkits based on PaddlePaddle （8.6M ultra-lightweight pre-trained model, support training and deployment among server, mobile, embeded and IoT devices",
-    long_description=readme(),
-    long_description_content_type="text/markdown",
-    url="https://github.com/UnstructureIO/unstructured.PaddleOCR",
-    download_url="https://github.com/UnstructureIO/unstructured.PaddleOCR.git",
-    keywords=[
-        "ocr textdetection textrecognition paddleocr crnn east star-net rosetta ocrlite db chineseocr chinesetextdetection chinesetextrecognition"
-    ],
-    classifiers=[
-        "Intended Audience :: Developers",
-        "Operating System :: OS Independent",
-        "Natural Language :: Chinese (Simplified)",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.2",
-        "Programming Language :: Python :: 3.3",
-        "Programming Language :: Python :: 3.4",
-        "Programming Language :: Python :: 3.5",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
-        "Topic :: Utilities",
-    ],
-)
+setup()

@@ -66,16 +66,27 @@ def _check_image_file(path):
 
 def get_image_file_list(img_file, infer_list=None):
     imgs_lists = []
-    if img_file is None or not os.path.exists(img_file):
-        raise Exception("not found any img file in {}".format(img_file))
+    if infer_list and not os.path.exists(infer_list):
+        raise Exception("not found infer list {}".format(infer_list))
+    if infer_list:
+        with open(infer_list, "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            image_path = line.strip().split("\t")[0]
+            image_path = os.path.join(img_file, image_path)
+            imgs_lists.append(image_path)
+    else:
+        if img_file is None or not os.path.exists(img_file):
+            raise Exception("not found any img file in {}".format(img_file))
 
-    if os.path.isfile(img_file) and _check_image_file(img_file):
-        imgs_lists.append(img_file)
-    elif os.path.isdir(img_file):
-        for single_file in os.listdir(img_file):
-            file_path = os.path.join(img_file, single_file)
-            if os.path.isfile(file_path) and _check_image_file(file_path):
-                imgs_lists.append(file_path)
+        img_end = {"jpg", "bmp", "png", "jpeg", "rgb", "tif", "tiff", "gif", "pdf"}
+        if os.path.isfile(img_file) and _check_image_file(img_file):
+            imgs_lists.append(img_file)
+        elif os.path.isdir(img_file):
+            for single_file in os.listdir(img_file):
+                file_path = os.path.join(img_file, single_file)
+                if os.path.isfile(file_path) and _check_image_file(file_path):
+                    imgs_lists.append(file_path)
 
     if len(imgs_lists) == 0:
         raise Exception("not found any img file in {}".format(img_file))
@@ -118,9 +129,26 @@ def check_and_read(img_path):
         imgvalue = frame[:, :, ::-1]
         return imgvalue, True, False
     elif os.path.basename(img_path)[-3:].lower() == "pdf":
-        import pdf2image
-        imgs = pdf2image.convert_from_path(img_path)
-        return imgs, False, True
+        from paddle.utils import try_import
+
+        fitz = try_import("fitz")
+        from PIL import Image
+
+        imgs = []
+        with fitz.open(img_path) as pdf:
+            for pg in range(0, pdf.page_count):
+                page = pdf[pg]
+                mat = fitz.Matrix(2, 2)
+                pm = page.get_pixmap(matrix=mat, alpha=False)
+
+                # if width or height > 2000 pixels, don't enlarge the image
+                if pm.width > 2000 or pm.height > 2000:
+                    pm = page.get_pixmap(matrix=fitz.Matrix(1, 1), alpha=False)
+
+                img = Image.frombytes("RGB", [pm.width, pm.height], pm.samples)
+                img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                imgs.append(img)
+            return imgs, False, True
     return None, False, False
 
 
@@ -152,7 +180,7 @@ def set_seed(seed=1024):
 def check_install(module_name, install_name):
     spec = importlib.util.find_spec(module_name)
     if spec is None:
-        print(f"Warnning! The {module_name} module is NOT installed")
+        print(f"Warning! The {module_name} module is NOT installed")
         print(
             f"Try install {module_name} module automatically. You can also try to install manually by pip install {install_name}."
         )

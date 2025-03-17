@@ -1,12 +1,22 @@
-include LICENSE
-include README.md
-include unstructured_paddleocr/paddleocr.py
-include unstructured_paddleocr/__init__.py
-
-recursive-include unstructured_paddleocr/ppocr/utils *.*
-recursive-include unstructured_paddleocr/ppocr/data *.py
-recursive-include unstructured_paddleocr/ppocr/postprocess *.py
-recursive-include unstructured_paddleocr/paddle_tools/infer *.py
-recursive-include unstructured_paddleocr/paddle_tools __init__.py
-recursive-include unstructured_paddleocr/ppocr/utils/e2e_utils *.py
-recursive-include unstructured_paddleocr/ppstructure *.py
+prune .github
+prune applications
+prune benchmark
+prune configs
+prune deploy
+prune doc
+prune docs
+prune overrides
+prune ppocr/ext_op
+prune ppocr/losses
+prune ppocr/metrics
+prune ppocr/modeling
+prune ppocr/optimizer
+prune ppstructure/docs
+prune test_tipc
+prune tests
+exclude .clang_format.hook
+exclude .gitignore
+exclude .pre-commit-config.yaml
+exclude .style.yapf
+exclude mkdocs.yml
+exclude train.sh
