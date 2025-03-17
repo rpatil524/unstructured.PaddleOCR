@@ -1,5 +1,0 @@
-__init__
-ppocr
-ppstructure
-tools
-unstructured_paddleocr
